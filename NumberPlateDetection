@@ -1,0 +1,56 @@
+
+import cv2
+import pytesseract
+
+# Set up video capture from the drone feed
+cap = cv2.VideoCapture("http://<drone_feed_url>")
+
+# Set up Tesseract OCR engine
+pytesseract.pytesseract.tesseract_cmd = '<path_to_tesseract_executable>'
+custom_config = r'--oem 3 --psm 6'
+
+while True:
+    # Capture frame from drone feed
+    ret, frame = cap.read()
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # Apply thresholding to create binary image
+    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+    # Find contours in the binary image
+    contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Loop over the contours
+    for contour in contours:
+        # Find the bounding rectangle of the contour
+        x, y, w, h = cv2.boundingRect(contour)
+        
+        # Check if the contour could be a vehicle number plate based on aspect ratio and size
+        if 2.5 < w/h < 4 and w*h > 10000:
+            # Extract the region of interest corresponding to the number plate
+            roi = frame[y:y+h, x:x+w]
+            
+            # Preprocess the ROI to improve OCR accuracy
+            roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _, roi_thresh = cv2.threshold(roi_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            roi_blur = cv2.medianBlur(roi_thresh, 3)
+            
+            # Perform OCR on the preprocessed ROI
+            number_plate = pytesseract.image_to_string(roi_blur, config=custom_config)
+            
+            # Draw the bounding rectangle and recognized number plate on the original frame
+            cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
+            cv2.putText(frame, number_plate, (x,y-5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2, cv2.LINE_AA)
+            
+    # Display the annotated frame
+    cv2.imshow('Frame', frame)
+    
+    # Break out of loop if 'q' key is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Clean up
+cap.release()
+cv2.destroyAllWindows()
